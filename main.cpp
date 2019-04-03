@@ -2,7 +2,9 @@
 #include <fstream>
 #include <regex>
 #include <time.h>
+#include "json.hpp"
 using namespace std;
+using json = nlohmann::json;
 
 /*Searching coordinates numbers in raw strings and store them in an array*/
 void getCoordinates(string raw, double *co){
@@ -18,6 +20,7 @@ void getCoordinates(string raw, double *co){
 }
 
 void getHashtags(){
+    //TODO
 
 }
 
@@ -27,18 +30,15 @@ int main() {
     //string twitterData="/home/zlp/data/twitterMelb.json";
     ifstream file(twitterData);
     string eachLine;
-    regex hashtags_regex("\\\"hashtags\\\" : \\[.*\\],");
-    regex geo_regex("\\\"coordinates\\\" : \\[.{0,28}\\]");
-    smatch m;
     int i=0;
-    while (getline(file,eachLine) && i<10){
-        regex_search(eachLine,m,hashtags_regex);
-        cout<<m.str()<<endl;
+    getline(file,eachLine);
+    while (getline(file,eachLine) && i<5){
+        eachLine.pop_back();
+        eachLine.pop_back();
+        cout<<eachLine<<endl;
+        json tweet=json::parse(eachLine);
+        cout<<tweet.dump()<<endl;
 
-        regex_search(eachLine,m,geo_regex);
-        double co[2];
-        getCoordinates(m.str(),co);
-        printf("%.8f,%.8f\n",co[0],co[1]);
         i++;
     }
 
