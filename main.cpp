@@ -1,22 +1,45 @@
 #include <iostream>
 #include <fstream>
-#include <regex>
 #include <time.h>
+#include <unordered_map>
 #include "json.hpp"
 using namespace std;
 using json = nlohmann::json;
 
-/*Searching coordinates numbers in raw strings and store them in an array*/
-void getCoordinates(string raw, double *co){
-    regex x("[+-]?(\\d+(\\.\\d+)?|\\.\\d+)([eE][+-]?\\d+)?");
-    auto words_begin =
-            sregex_iterator(raw.begin(), raw.end(), x);
-    auto words_end = sregex_iterator();
-    int j=0;
-    for (sregex_iterator i = words_begin; i != words_end; ++i,++j) {
-        smatch match = *i;
-        co[j]=stod(match.str());
+/*block is used to store statistical information*/
+struct block{
+    string name;
+    double xmin,xmax,ymin,ymax;
+    int total=0;
+    unordered_map<string,int> hashtag_count;
+};
+
+/*initializing the grid from json file
+ * grid consists of multiple blocks*/
+void initialGrid(block* grid){
+    ifstream file("/home/zlp/data/melbGrid.json");
+    string eachLine;
+    int i=0,j=0;
+    while (getline(file,eachLine) && i<21) {
+        if(i>4){
+            if(i!=20){
+                eachLine.pop_back();
+            }
+            json f=json::parse(eachLine);
+            grid[j].name=f["properties"]["id"];
+            grid[j].xmin=f["properties"]["xmin"];
+            grid[j].xmax=f["properties"]["xmax"];
+            grid[j].ymin=f["properties"]["ymin"];
+            grid[j].ymax=f["properties"]["ymax"];
+            j++;
+        }
+        i++;
     }
+}
+
+/*Searching coordinates numbers in raw strings and store them in an array*/
+void getCoordinates(){
+    //TODO
 }
 
 void getHashtags(){
@@ -29,16 +52,24 @@ int main() {
     string twitterData="/home/zlp/data/tinyTwitter.json";
     //string twitterData="/home/zlp/data/twitterMelb.json";
     ifstream file(twitterData);
+
+    block grid[16];
+    initialGrid(grid);
+
     string eachLine;
     int i=0;
     getline(file,eachLine);
     while (getline(file,eachLine) && i<5){
         eachLine.pop_back();
         eachLine.pop_back();
-        cout<<eachLine<<endl;
         json tweet=json::parse(eachLine);
-        cout<<tweet.dump()<<endl;
+        //cout<<tweet.dump(4)<<endl;
+        //cout<<tweet["doc"]["coordinates"]["coordinates"]<<endl;
+        double co[2];
+        co[0]=tweet["doc"]["coordinates"]["coordinates"][0];
+        co[1]=tweet["doc"]["coordinates"]["coordinates"][1];
 
+        cout<<tweet["doc"]["entities"]["hashtags"][0]["text"]<<endl;
         i++;
     }
 
