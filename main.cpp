@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <time.h>
+#include <regex>
 #include <unordered_map>
 #include "json.hpp"
 using namespace std;
@@ -37,14 +38,38 @@ void initialGrid(block* grid){
     }
 }
 
-/*Searching coordinates numbers in raw strings and store them in an array*/
-void getCoordinates(){
-    //TODO
+/*storing hashtags in a hashmap of block which they belong*/
+void storeHashtags(string raw, block* area){
+    regex x("#\\w* ");
+    auto words_begin =
+            sregex_iterator(raw.begin(), raw.end(), x);
+    auto words_end = sregex_iterator();
+    for (sregex_iterator i = words_begin; i != words_end; ++i) {
+        smatch match = *i;
+        bool hasKey=area->hashtag_count.count(match.str());
+        if(hasKey){
+            area->hashtag_count.at(match.str())++;
+        }else{
+            area->hashtag_count.insert({match.str(),1});
+        }
+    }
+
 }
 
-void getHashtags(){
-    //TODO
+/*comparing coordinates with each block's boundary,
+ * If it's in block then store it and return grid number, otherwise return -1*/
+int storeCoordinates(double* co, block* grid){
+    for(int i=0;i<16;i++){
+        if(co[0]>grid[i].xmin && co[0]<=grid[i].xmax && co[1]>=grid[i].ymin && co[1]<grid[i].ymax){
+            grid[i].total++;
+            return i;
+        }
+    }
+    return -1;
+}
 
+void showTop5Hashtags(block* grid){
+    //TODO
 }
 
 int main() {
@@ -56,10 +81,11 @@ int main() {
     block grid[16];
     initialGrid(grid);
 
+    int inGridNum;
     string eachLine;
     int i=0;
     getline(file,eachLine);
-    while (getline(file,eachLine) && i<5){
+    while (getline(file,eachLine) && i<500){
         eachLine.pop_back();
         eachLine.pop_back();
         json tweet=json::parse(eachLine);
@@ -68,13 +94,22 @@ int main() {
         double co[2];
         co[0]=tweet["doc"]["coordinates"]["coordinates"][0];
         co[1]=tweet["doc"]["coordinates"]["coordinates"][1];
+        inGridNum=storeCoordinates(co,grid);
 
-        cout<<tweet["doc"]["entities"]["hashtags"][0]["text"]<<endl;
+        if(inGridNum!=-1){
+            storeHashtags(tweet["doc"]["text"],&grid[inGridNum]);
+        }
         i++;
     }
 
+    showTop5Hashtags(grid);
 
-    //printf("The number of tweets: %d\n",i);
+    unordered_map<string,int>::iterator it;
+    for(it=grid[13].hashtag_count.begin();it!=grid[13].hashtag_count.end();it++){
+        cout<<it->first<<it->second<<endl;
+    }
+    cout<<grid[13].name<<":"<<grid[13].total<<endl;
+
     printf("Time taken: %.6fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
     file.close();
     return 0;
