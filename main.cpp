@@ -4,6 +4,10 @@
 #include <regex>
 #include <unordered_map>
 #include "json.hpp"
+#include <mpi.h>
+#include <vector>
+
+
 using namespace std;
 using json = nlohmann::json;
 
@@ -18,7 +22,7 @@ struct block{
 /*initializing the grid from json file
  * grid consists of multiple blocks*/
 void initialGrid(block* grid){
-    ifstream file("/home/zlp/data/melbGrid.json");
+    ifstream file("/Users/eliya/CLionProjects/JsonParser/melbGrid.json");
     string eachLine;
     int i=0,j=0;
     while (getline(file,eachLine) && i<21) {
@@ -58,7 +62,8 @@ void storeHashtags(string raw, block* area){
 
 /*comparing coordinates with each block's boundary,
  * If it's in block then store it and return grid number, otherwise return -1*/
-int storeCoordinates(double* co, block* grid){
+//int storeCoordinates(double* co, block* grid){
+int storeCoordinates(vector<double> co, block* grid){
     for(int i=0;i<16;i++){
         if(co[0]>grid[i].xmin && co[0]<=grid[i].xmax && co[1]>=grid[i].ymin && co[1]<grid[i].ymax){
             grid[i].total++;
@@ -72,36 +77,92 @@ void showTop5Hashtags(block* grid){
     //TODO
 }
 
-int main() {
+void sendVector(vector<double> const& vec, int dest, int tag, MPI_Comm comm){
+unsigned len = vec.size();
+MPI_Send(&len, 1, MPI_UNSIGNED, dest, tag, comm);
+if (len != 0)
+MPI_Send(vec.data(), len, MPI_INT, dest, tag, comm);
+}
+
+void receiveVector(vector<double>& vec, int src, int tag, MPI_Comm comm){
+    unsigned len;
+    MPI_Status s;
+    MPI_Recv(&len, 1, MPI_UNSIGNED, src, tag, comm, &s);
+    if (len != 0) {
+        vec.resize(len);
+        MPI_Recv(vec.data(), len, MPI_INT, src, tag, comm, &s);
+    } else
+        vec.clear();
+}
+
+
+int main(int argc, char** argv) {
     clock_t tStart=clock();
-    string twitterData="/home/zlp/data/tinyTwitter.json";
-    //string twitterData="/home/zlp/data/twitterMelb.json";
-    ifstream file(twitterData);
+
+    MPI_Init(NULL,NULL);
+    int world_size;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    int world_rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
     block grid[16];
     initialGrid(grid);
 
+
+    string twitterData="/Users/eliya/CLionProjects/JsonParser/tinyTwitter2.json";
+    //string twitterData="/home/zlp/data/twitterMelb.json";
+    ifstream file(twitterData);
+
+
     int inGridNum;
     string eachLine;
-    int i=0;
     getline(file,eachLine);
-    while (getline(file,eachLine) && i<500){
-        eachLine.pop_back();
-        eachLine.pop_back();
-        json tweet=json::parse(eachLine);
-        //cout<<tweet.dump(4)<<endl;
-        //cout<<tweet["doc"]["coordinates"]["coordinates"]<<endl;
-        double co[2];
-        co[0]=tweet["doc"]["coordinates"]["coordinates"][0];
-        co[1]=tweet["doc"]["coordinates"]["coordinates"][1];
-        inGridNum=storeCoordinates(co,grid);
+    int counter = 0;
+    vector<double> co;
 
-        if(inGridNum!=-1){
-            storeHashtags(tweet["doc"]["text"],&grid[inGridNum]);
+    while(getline(file,eachLine) || (!getline(file,eachLine) && counter%world_size != 0)) {
+
+        if(counter%world_size == world_rank){
+            if(!getline(file,eachLine)){
+                co[0] = 0;
+                co[1] = 0;
+                sendVector(co,0,1,MPI_COMM_WORLD);
+                break;
+            }
+            else{
+                getline(file,eachLine);
+                /* pass the coordinates to rank 0*/
+                eachLine.pop_back();
+                eachLine.pop_back();
+                json tweet=json::parse(eachLine);
+                co[0] = tweet["doc"]["coordinates"]["coordinates"][0];
+                co[1] = tweet["doc"]["coordinates"]["coordinates"][1];
+
+                if(world_rank != 0)
+                    sendVector(co,0,1,MPI_COMM_WORLD);
+                else{
+                    inGridNum=storeCoordinates(co,grid);
+                    if(inGridNum!=-1){
+                        storeHashtags(tweet["doc"]["text"],&grid[inGridNum]);
+                    }
+                    //TODO RECEIVE
+                    for (int i=1;i<8;i++){
+                        receiveVector(co,i,1,MPI_COMM_WORLD);
+                        inGridNum=storeCoordinates(co,grid);
+                        if(inGridNum!=-1){
+                            storeHashtags(tweet["doc"]["text"],&grid[inGridNum]);
+                        }
+                    }
+                }
+            }
         }
-        i++;
+        else{
+            getline(file,eachLine);
+        }
+        counter++;
     }
 
+    /*
     showTop5Hashtags(grid);
 
     unordered_map<string,int>::iterator it;
@@ -109,8 +170,10 @@ int main() {
         cout<<it->first<<it->second<<endl;
     }
     cout<<grid[13].name<<":"<<grid[13].total<<endl;
+    */
 
     printf("Time taken: %.6fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
     file.close();
+
     return 0;
 }
