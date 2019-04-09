@@ -36,6 +36,7 @@ void initialGrid(block* grid){
         }
         i++;
     }
+    file.close();
 }
 
 /*storing hashtags in a hashmap of block which they belong*/
@@ -46,19 +47,20 @@ void storeHashtags(string raw, block* area){
     auto words_end = sregex_iterator();
     for (sregex_iterator i = words_begin; i != words_end; ++i) {
         smatch match = *i;
-        bool hasKey=area->hashtag_count.count(match.str());
+        string text=match.str();
+        text.pop_back();
+        bool hasKey=area->hashtag_count.count(text);
         if(hasKey){
-            area->hashtag_count.at(match.str())++;
+            area->hashtag_count.at(text)++;
         }else{
-            area->hashtag_count.insert({match.str(),1});
+            area->hashtag_count.insert({text,1});
         }
     }
-
 }
 
 /*comparing coordinates with each block's boundary,
  * If it's in block then store it and return grid number, otherwise return -1*/
-int storeCoordinates(double* co, block* grid){
+int storeCoordinates(const double* co, block* grid){
     for(int i=0;i<16;i++){
         if(co[0]>grid[i].xmin && co[0]<=grid[i].xmax && co[1]>=grid[i].ymin && co[1]<grid[i].ymax){
             grid[i].total++;
@@ -68,8 +70,24 @@ int storeCoordinates(double* co, block* grid){
     return -1;
 }
 
-void showTop5Hashtags(block* grid){
-    //TODO
+/*Printing the top 5 hashtags for a given block.
+ * Hashmap in the block is transferred to a map which ranks the count value*/
+void showTop5Hashtags(block b){
+    map<int,string,greater<>> rank;
+    for(auto & it : b.hashtag_count){
+        rank.insert(make_pair(it.second,it.first));
+    }
+    int count=0;
+    int previous=0;
+    for(auto & it : rank){
+        if(previous!=it.first){
+            count++;
+            previous=it.first;
+        }
+        if(count<=5){
+            cout<<"("<<it.second<<","<<it.first<<"),";
+        }
+    }
 }
 
 int main() {
@@ -84,31 +102,37 @@ int main() {
     int inGridNum;
     string eachLine;
     int i=0;
-    getline(file,eachLine);
-    while (getline(file,eachLine) && i<500){
+    getline(file,eachLine); //get rid of first line
+    while (getline(file,eachLine) && eachLine.length()>10){
         eachLine.pop_back();
-        eachLine.pop_back();
-        json tweet=json::parse(eachLine);
+        if(eachLine.back()==','){
+            eachLine.pop_back();
+        }
+        json tweet = json::parse(eachLine);
         //cout<<tweet.dump(4)<<endl;
         //cout<<tweet["doc"]["coordinates"]["coordinates"]<<endl;
         double co[2];
-        co[0]=tweet["doc"]["coordinates"]["coordinates"][0];
-        co[1]=tweet["doc"]["coordinates"]["coordinates"][1];
-        inGridNum=storeCoordinates(co,grid);
+        co[0] = tweet["doc"]["coordinates"]["coordinates"][0];
+        co[1] = tweet["doc"]["coordinates"]["coordinates"][1];
+        inGridNum = storeCoordinates(co, grid);
 
-        if(inGridNum!=-1){
-            storeHashtags(tweet["doc"]["text"],&grid[inGridNum]);
+        if (inGridNum != -1) {
+            storeHashtags(tweet["doc"]["text"], &grid[inGridNum]);
         }
         i++;
     }
 
-    showTop5Hashtags(grid);
-
-    unordered_map<string,int>::iterator it;
-    for(it=grid[13].hashtag_count.begin();it!=grid[13].hashtag_count.end();it++){
-        cout<<it->first<<it->second<<endl;
+    //printout top 5 hashtags information of grid
+    for(auto & j : grid){
+        cout<<j.name<<":";
+        showTop5Hashtags(j);
+        cout<<endl;
     }
-    cout<<grid[13].name<<":"<<grid[13].total<<endl;
+
+    //printout tweet count for each block
+    for(int i=0;i<16;i++){
+        cout<<"Block "<<i<<" tweet count:"<<grid[i].total<<endl;
+    }
 
     printf("Time taken: %.6fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
     file.close();
