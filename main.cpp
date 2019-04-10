@@ -6,9 +6,13 @@
 #include "json.hpp"
 #include <mpi.h>
 #include <vector>
+#define root 0
+#define tag_work_range 1
 
 using namespace std;
 using json = nlohmann::json;
+string twitterFile="/home/zlp/data/tinyTwitter.json";
+//string twitterFile="/Users/eliya/CLionProjects/JsonParser/tinyTwitter2.json";
 
 /*block is used to store statistical information*/
 struct block{
@@ -21,7 +25,8 @@ struct block{
 /*initializing the grid from json file
  * grid consists of multiple blocks*/
 void initialGrid(block* grid){
-    ifstream file("/Users/eliya/CLionProjects/JsonParser/melbGrid.json");
+    //ifstream file("/Users/eliya/CLionProjects/JsonParser/melbGrid.json");
+    ifstream file("/home/zlp/data/melbGrid.json");
     string eachLine;
     int i=0,j=0;
     while (getline(file,eachLine) && i<21) {
@@ -52,6 +57,7 @@ void storeHashtags(string raw, block* area){
         smatch match = *i;
         string text=match.str();
         text.pop_back();
+        transform(text.begin(),text.end(),text.begin(),::tolower);
         bool hasKey=area->hashtag_count.count(text);
         if(hasKey){
             area->hashtag_count.at(text)++;
@@ -63,7 +69,7 @@ void storeHashtags(string raw, block* area){
 
 /*comparing coordinates with each block's boundary,
  * If it's in block then store it and return grid number, otherwise return -1*/
-int storeCoordinates(const vector<double> co, block* grid){
+int storeCoordinates(double* co, block* grid){
     for(int i=0;i<16;i++){
         if(co[0]>grid[i].xmin && co[0]<=grid[i].xmax && co[1]>=grid[i].ymin && co[1]<grid[i].ymax){
             grid[i].total++;
@@ -93,112 +99,94 @@ void showTop5Hashtags(block b){
     }
 }
 
-void sendVector(vector<double> const& vec, int dest, int tag, MPI_Comm comm){
-unsigned len = vec.size();
-MPI_Send(&len, 1, MPI_UNSIGNED, dest, tag, comm);
-if (len != 0)
-MPI_Send(vec.data(), len, MPI_INT, dest, tag, comm);
+/*counting tweet dataset in line*/
+int countTweetLines(){
+    ifstream file(twitterFile);
+    string eachLine;
+    int count=0;
+    while(getline(file,eachLine)){
+        count++;
+    }
+    file.close();
+    return count;
 }
 
-void receiveVector(vector<double>& vec, int src, int tag, MPI_Comm comm){
-    unsigned len;
-    MPI_Status s;
-    MPI_Recv(&len, 1, MPI_UNSIGNED, src, tag, comm, &s);
-    if (len != 0) {
-        vec.resize(len);
-        MPI_Recv(vec.data(), len, MPI_INT, src, tag, comm, &s);
-    } else
-        vec.clear();
+/*reading file in given range(start,end) and storing information in grid*/
+void processTweetData(block* grid,int start,int end){
+    ifstream file(twitterFile);
+    string eachLine;
+    int inGridNum;
+    int i=0;
+    while (getline(file,eachLine) && i<end){
+        if(i>=start && eachLine.length()>100) {
+            eachLine.pop_back();
+            if (eachLine.back() == ',') {
+                eachLine.pop_back();
+            }
+            json tweet = json::parse(eachLine);
+            double co[2];
+            co[0] = tweet["doc"]["coordinates"]["coordinates"][0];
+            co[1] = tweet["doc"]["coordinates"]["coordinates"][1];
+            inGridNum = storeCoordinates(co, grid);
+
+            if (inGridNum != -1) {
+                storeHashtags(tweet["doc"]["text"], &grid[inGridNum]);
+            }
+        }
+        i++;
+    }
+    file.close();
 }
 
-int main() {
-    clock_t tStart=clock();
+void masterDoWork(block* grid,int nproc){
+    int total=countTweetLines();
+    int interval=total/nproc;
+    int buffer[2];
+    for(int i=1;i<nproc;i++){
+        buffer[0]=i*interval;
+        if(i!=nproc-1){
+            buffer[1]=(i+1)*interval;
+        }else{
+            buffer[1]=total;
+        }
+        MPI_Send(buffer,2,MPI_INT,i,tag_work_range,MPI_COMM_WORLD);
+    }
+    processTweetData(grid,0,interval);
 
-    MPI_Init(NULL,NULL);
-    int world_size;
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    int world_rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    //TODO receiving, retrieving from json format, processing hashmap
+}
+
+void slaveDoWork(block* grid,int rank){
+    int buffer[2];
+    MPI_Status status;
+    MPI_Recv(buffer,2,MPI_INT,root,tag_work_range,MPI_COMM_WORLD,&status);
+    cout<<"process "<<rank<<" receive "<<buffer[0]<<" "<<buffer[1]<<endl;
+    processTweetData(grid,buffer[0],buffer[1]);
+
+    //TODO sending hashmap in json format
+}
+
+int main(int argc, char **argv) {
+
+    MPI_Init(&argc,&argv);
+    int nproc;
+    MPI_Comm_size(MPI_COMM_WORLD, &nproc);
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    double stamp;
+    if(rank==root){
+        stamp=MPI_Wtime();
+    }
 
     block grid[16];
     initialGrid(grid);
 
-
-    string twitterData="/Users/eliya/CLionProjects/JsonParser/tinyTwitter2.json";
-    //string twitterData="/home/zlp/data/twitterMelb.json";
-    ifstream file(twitterData);
-    string eachLine;
-    getline(file,eachLine); //get rid of first line
-
-    int inGridNum;
-    int counter = 0;
-    vector<double> co(2);
-
-
-    while(getline(file,eachLine) && eachLine.length()>10 || (!getline(file,eachLine) && counter%world_size != 0)) {
-
-        if(counter%world_size == world_rank){
-            if(!getline(file,eachLine)){
-                co[0] = 0;
-                co[1] = 0;
-                sendVector(co,0,1,MPI_COMM_WORLD);
-                break;
-            }
-            else{
-                // pass the coordinates to rank 0
-                eachLine.pop_back();
-                if(eachLine.back()==','){
-                    eachLine.pop_back();
-                }
-                json tweet=json::parse(eachLine);
-                co[0] = tweet["doc"]["coordinates"]["coordinates"][0];
-                co[1] = tweet["doc"]["coordinates"]["coordinates"][1];
-                if(world_rank != 0)
-                    sendVector(co,0,1,MPI_COMM_WORLD);
-                else{
-                    inGridNum=storeCoordinates(co,grid);
-                    if(inGridNum!=-1) {
-                        storeHashtags(tweet["doc"]["text"], &grid[inGridNum]);
-                    }
-                    //TODO RECEIVE
-                    for (int i=1;i<world_size;i++) {
-                        receiveVector(co, i, 1, MPI_COMM_WORLD);
-                        inGridNum=storeCoordinates(co,grid);
-                        if(inGridNum!=-1) {
-                            storeHashtags(tweet["doc"]["text"], &grid[inGridNum]);
-                        }
-                    }
-                }
-            }
-        }
-        else{
-            getline(file,eachLine);
-        }
-        counter++;
+    if(rank==root){
+        masterDoWork(grid,nproc);
+    }else{
+        slaveDoWork(grid,rank);
     }
-
-
-/*
-    int i=0;
-    while (getline(file,eachLine) && eachLine.length()>10){
-        eachLine.pop_back();
-        if(eachLine.back()==','){
-            eachLine.pop_back();
-        }
-        json tweet = json::parse(eachLine);
-        //cout<<tweet.dump(4)<<endl;
-        //cout<<tweet["doc"]["coordinates"]["coordinates"]<<endl;
-        double co[2];
-        co[0] = tweet["doc"]["coordinates"]["coordinates"][0];
-        co[1] = tweet["doc"]["coordinates"]["coordinates"][1];
-        inGridNum = storeCoordinates(co, grid);
-
-        if (inGridNum != -1) {
-            storeHashtags(tweet["doc"]["text"], &grid[inGridNum]);
-        }
-        i++;
-    }
-*/
 
     //printout top 5 hashtags information of grid
     for(auto & j : grid){
@@ -209,12 +197,13 @@ int main() {
 
     //printout tweet count for each block
     for(int i=0;i<16;i++){
-        cout<<"Block "<<i<<" tweet count:"<<grid[i].total<<endl;
+        cout<<grid[i].name<<": "<<grid[i].total<<" posts,"<<endl;
     }
 
+    if(rank==root){
+        printf("time_cost:%.16g\n",MPI_Wtime()-stamp);
+    }
 
-    printf("Time taken: %.6fs\n", (double)(clock() - tStart)/CLOCKS_PER_SEC);
-    file.close();
     MPI_Finalize();
     return 0;
 }
