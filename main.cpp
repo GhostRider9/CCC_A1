@@ -13,7 +13,7 @@
 using namespace std;
 using json = nlohmann::json;
 string twitterFile="/home/zlp/CCC_a1/data/bigTwitter.json"; //for zlp spartan
-//string twitterFile="/home/zlp/data/tinyTwitter.json"; //for zlp local
+//string twitterFile="/home/zlp/data/bigTwitter.json"; //for zlp local
 //string twitterFile="/Users/eliya/CLionProjects/JsonParser/tinyTwitter2.json"; //for wxq local
 
 /*block is used to store statistical information*/
@@ -159,7 +159,8 @@ void addMap(unordered_map<string,int>* a,unordered_map<string,int> *b){
 }
 
 void masterDoWork(block* grid,int nproc){
-    int total=countTweetLines();
+    //int total=countTweetLines();
+    int total=2500002;
     int interval=total/nproc;
     int buffer[2];
     for(int i=1;i<nproc;i++){
@@ -215,10 +216,9 @@ void slaveDoWork(block* grid,int rank){
 
 int main(int argc, char **argv) {
 
-    MPI_Init(&argc,&argv);
-    int nproc;
+    int nproc,rank,provided;
+    MPI_Init_thread(&argc , &argv , MPI_THREAD_FUNNELED ,& provided);
     MPI_Comm_size(MPI_COMM_WORLD, &nproc);
-    int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     double stamp;
