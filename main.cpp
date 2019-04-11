@@ -12,8 +12,8 @@
 
 using namespace std;
 using json = nlohmann::json;
-string twitterFile="/home/zlp/CCC_a1/data/smallTwitter.json"; //for zlp spartan
-//string twitterFile="/home/zlp/data/smallTwitter.json"; //for zlp local
+string twitterFile="/home/zlp/CCC_a1/data/bigTwitter.json"; //for zlp spartan
+//string twitterFile="/home/zlp/data/tinyTwitter.json"; //for zlp local
 //string twitterFile="/Users/eliya/CLionProjects/JsonParser/tinyTwitter2.json"; //for wxq local
 
 /*block is used to store statistical information*/
@@ -128,13 +128,16 @@ void processTweetData(block* grid,int start,int end){
                 eachLine.pop_back();
             }
             json tweet = json::parse(eachLine);
-            double co[2];
-            co[0] = tweet["doc"]["coordinates"]["coordinates"][0];
-            co[1] = tweet["doc"]["coordinates"]["coordinates"][1];
-            inGridNum = storeCoordinates(co, grid);
 
-            if (inGridNum != -1) {
-                storeHashtags(tweet["doc"]["text"], &grid[inGridNum]);
+            if (!tweet["doc"]["coordinates"].is_null()) {
+                double co[2];
+                co[0] = tweet["doc"]["coordinates"]["coordinates"][0];
+                co[1] = tweet["doc"]["coordinates"]["coordinates"][1];
+                inGridNum = storeCoordinates(co, grid);
+
+                if (inGridNum != -1 && !tweet["doc"]["text"].is_null()) {
+                    storeHashtags(tweet["doc"]["text"], &grid[inGridNum]);
+                }
             }
         }
         i++;
