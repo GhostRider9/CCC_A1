@@ -8,11 +8,13 @@
 #include <vector>
 #define root 0
 #define tag_work_range 1
+#define tag_tweet_info 2
 
 using namespace std;
 using json = nlohmann::json;
-string twitterFile="/home/zlp/data/tinyTwitter.json";
-//string twitterFile="/Users/eliya/CLionProjects/JsonParser/tinyTwitter2.json";
+string twitterFile="/home/zlp/CCC_a1/data/smallTwitter.json"; //for zlp spartan
+//string twitterFile="/home/zlp/data/smallTwitter.json"; //for zlp local
+//string twitterFile="/Users/eliya/CLionProjects/JsonParser/tinyTwitter2.json"; //for wxq local
 
 /*block is used to store statistical information*/
 struct block{
@@ -25,8 +27,10 @@ struct block{
 /*initializing the grid from json file
  * grid consists of multiple blocks*/
 void initialGrid(block* grid){
-    //ifstream file("/Users/eliya/CLionProjects/JsonParser/melbGrid.json");
-    ifstream file("/home/zlp/data/melbGrid.json");
+    ifstream file("/home/zlp/CCC_a1/data/melbGrid.json"); //for zlp spartan
+    //ifstream file("/home/zlp/data/melbGrid.json"); //for zlp local
+    // ifstream file("/Users/eliya/CLionProjects/JsonParser/melbGrid.json"); //for wxq local
+
     string eachLine;
     int i=0,j=0;
     while (getline(file,eachLine) && i<21) {
@@ -138,6 +142,19 @@ void processTweetData(block* grid,int start,int end){
     file.close();
 }
 
+/* combining two unordered map together, if map a has the same key in map b,
+ * then add two value and store it in map a, otherwise insert new key and value*/
+void addMap(unordered_map<string,int>* a,unordered_map<string,int> *b){
+    for(auto& it:*b){
+        auto got=a->find(it.first);
+        if(got==a->end()){
+            a->insert({it.first,it.second});
+        }else{
+            got->second=got->second+it.second;
+        }
+    }
+}
+
 void masterDoWork(block* grid,int nproc){
     int total=countTweetLines();
     int interval=total/nproc;
@@ -153,7 +170,25 @@ void masterDoWork(block* grid,int nproc){
     }
     processTweetData(grid,0,interval);
 
-    //TODO receiving, retrieving from json format, processing hashmap
+    //receiving result from each slave node in json format
+    MPI_Status status;
+    int length;
+    for(int i=1;i<nproc;i++){
+        MPI_Probe(MPI_ANY_SOURCE,tag_tweet_info,MPI_COMM_WORLD,&status);
+        MPI_Get_count(&status, MPI_CHAR, &length);
+        char* c_info=new char[length];
+        MPI_Recv(c_info,length,MPI_CHAR,MPI_ANY_SOURCE,tag_tweet_info,MPI_COMM_WORLD,&status);
+        cout<<"receive data form "<<status.MPI_SOURCE<<" size:"<<length<<endl;
+        string info(c_info,length);
+
+        json j_grid=json::parse(info);
+        for(int j=0;j<16;j++){
+            grid[j].total+=int(j_grid[j*2]);
+            unordered_map<string,int> eachBlock=j_grid[j*2+1];
+            addMap(&grid[j].hashtag_count,&eachBlock);
+        }
+    }
+
 }
 
 void slaveDoWork(block* grid,int rank){
@@ -163,7 +198,16 @@ void slaveDoWork(block* grid,int rank){
     cout<<"process "<<rank<<" receive "<<buffer[0]<<" "<<buffer[1]<<endl;
     processTweetData(grid,buffer[0],buffer[1]);
 
-    //TODO sending hashmap in json format
+    //sending hashmap in json format
+    json j_grid;
+    for(int i=0;i<16;i++){
+        json j_count(grid[i].total);
+        j_grid.push_back(j_count);
+        json j_block(grid[i].hashtag_count);
+        j_grid.push_back(j_block);
+    }
+    string info=j_grid.dump();
+    MPI_Send(info.c_str(),info.length(),MPI_CHAR,root,tag_tweet_info,MPI_COMM_WORLD);
 }
 
 int main(int argc, char **argv) {
@@ -188,19 +232,18 @@ int main(int argc, char **argv) {
         slaveDoWork(grid,rank);
     }
 
-    //printout top 5 hashtags information of grid
-    for(auto & j : grid){
-        cout<<j.name<<":";
-        showTop5Hashtags(j);
-        cout<<endl;
-    }
-
-    //printout tweet count for each block
-    for(int i=0;i<16;i++){
-        cout<<grid[i].name<<": "<<grid[i].total<<" posts,"<<endl;
-    }
-
     if(rank==root){
+        //printout top 5 hashtags information of grid
+        for(auto & j : grid){
+            cout<<j.name<<":";
+            showTop5Hashtags(j);
+            cout<<endl;
+        }
+
+        //printout tweet count for each block
+        for(int i=0;i<16;i++){
+            cout<<grid[i].name<<": "<<grid[i].total<<" posts,"<<endl;
+        }
         printf("time_cost:%.16g\n",MPI_Wtime()-stamp);
     }
 
